@@ -1,4 +1,10 @@
 build/
+.fixture-work/
+*.key
+*.pem
+*.keystore
+*.jks
+authority.properties
 __pycache__/
 *.py[cod]
 .venv/

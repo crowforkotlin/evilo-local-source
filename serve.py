@@ -6,7 +6,7 @@ Usage:
 
 Defaults: port 8080, the build/ directory.
 
-If the port already answers with this fixture's catalog, it reports that and exits 0.
+If the port already answers with this directory's run marker, it reports that and exits 0.
 If the port is free, it serves in the foreground. If another process holds the port,
 it prints one line and exits 1 instead of printing a traceback.
 """
@@ -23,10 +23,15 @@ DIRECTORY = pathlib.Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else SCRIPT
 
 
 def fixture_answers(port):
-    url = f"http://127.0.0.1:{port}/plugin-000/catalog.json"
+    # Loopback is only an internal port probe, never a published download URL.
+    marker = DIRECTORY / "fixture-run.json"
+    if not marker.is_file():
+        return False
+    expected = marker.read_bytes()
+    url = f"http://127.0.0.1:{port}/fixture-run.json"
     try:
         with urllib.request.urlopen(url, timeout=2.0) as response:
-            return response.status == 200
+            return response.status == 200 and response.read(len(expected) + 1) == expected
     except Exception:
         return False
 
@@ -52,7 +57,8 @@ def main():
     except OSError as error:
         print(f"cannot listen on port {PORT}: {error}", file=sys.stderr)
         return 1
-    print(f"serving {DIRECTORY} on http://0.0.0.0:{PORT}")
+    print(f"serving {DIRECTORY}; listening on all interfaces, port {PORT}")
+    print("Use the explicit base URL selected during generation, not the bind address, in evilo.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

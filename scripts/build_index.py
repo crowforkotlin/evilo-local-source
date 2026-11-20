@@ -4,18 +4,21 @@
 Inputs:
     sources.txt           One plugin catalog URL per line; '#' starts a comment.
     collection.json       The collection name and its public identity.
-    EVILO_SUBSCRIBE_KEY_HEX   64-hex Ed25519 seed, read from the environment.
+    --key-directory / EVILO_SUBSCRIBE_KEY_DIRECTORY   External preserved authority.
+    EVILO_SUBSCRIBE_KEY_HEX   Legacy 64-hex Ed25519 seed environment input.
 
 Outputs (written next to sources.txt):
     index.json            Merged plugin records, the exact bytes that get signed.
-    index.sig             Ed25519 signature over index.json, lowercase hex.
-    repo.json             The pointer consumers subscribe to.
+    index.json.sig        Ed25519 signature over index.json, lowercase hex.
+    index.json.pub        Raw Ed25519 public key, lowercase hex.
+    repo.json             The signed subscription pointer.
 
 The index is rebuilt from scratch on every run. It never accumulates state, so a
 plugin repository that removes a release or changes a description is reflected
 on the next build without any manual editing here.
 """
 
+import argparse
 import copy
 import hashlib
 import json
@@ -25,6 +28,7 @@ import ssl
 import sys
 import urllib.error
 import urllib.request
+from urllib.parse import unquote, urlsplit
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD = pathlib.Path(os.environ.get("EVILO_BUILD_DIR") or (ROOT / "build")).resolve()
@@ -97,11 +101,53 @@ def plugin_record(url, plugin):
     return {"catalogUrl": url, "plugin": entry}
 
 
-def build_index(sources):
+def read_authority(directory, extra_repositories=()):
+    """Read existing external key material; never create keys or print their seed."""
+    directory = pathlib.Path(directory).expanduser().resolve()
+    if any((parent / ".git").exists() for parent in (directory,) + tuple(directory.parents)):
+        fail("signing directories must stay outside Git repositories")
+    for repository in (ROOT,) + tuple(extra_repositories):
+        if directory == repository.resolve() or repository.resolve() in directory.parents:
+            fail("signing directories must stay outside source repositories")
+    files = [directory / name for name in ("private.key", "public.key", "authority.properties")]
+    if any(not file.is_file() or file.is_symlink() for file in files):
+        fail("authority requires regular private.key, public.key, and authority.properties files")
+    private = files[0].read_text(encoding="ascii").strip().lower()
+    public = files[1].read_text(encoding="ascii").strip().lower()
+    if any(len(value) != 64 or any(c not in "0123456789abcdef" for c in value) for value in (private, public)):
+        fail("authority private/public keys must contain 64 hexadecimal characters")
+    metadata = dict(line.split("=", 1) for line in files[2].read_text(encoding="ascii").splitlines()
+                    if "=" in line and not line.lstrip().startswith(("#", "!")))
+    key_id = metadata.get("keyId", "")
+    if (metadata.get("publicKeyHex") != public or not 1 <= len(key_id) <= 128 or
+            any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-" for c in key_id)):
+        fail("authority metadata must match its public key and declare a valid keyId")
+    seed = bytes.fromhex(private)
+    if public_from_seed(seed).hex() != public:
+        fail("authority private/public keys do not match")
+    return seed
+
+
+def local_json(url, base_url):
+    """Read this run's catalogs without contacting or starting an HTTP server."""
+    base, parsed = urlsplit(base_url.rstrip("/")), urlsplit(url)
+    if (parsed.scheme, parsed.netloc) != (base.scheme, base.netloc) or parsed.query or parsed.fragment:
+        fail(f"local catalog URL is outside the explicit base URL: {url}")
+    relative = unquote(parsed.path).lstrip("/")
+    path = (BUILD / relative).resolve()
+    if BUILD not in path.parents or path.name != "catalog.json":
+        fail(f"local catalog URL does not resolve to a fixture catalog: {url}")
+    payload = path.read_bytes()
+    if len(payload) > MAX_BYTES:
+        fail(f"{url} exceeds {MAX_BYTES} bytes")
+    return json.loads(payload)
+
+
+def build_index(sources, local_base=None):
     records = []
     seen = {}
     for url in sources:
-        document = fetch_json(url)
+        document = local_json(url, local_base) if local_base else fetch_json(url)
         plugins = document.get("plugins")
         if not isinstance(plugins, list):
             fail(f"{url} is not a plugin catalog: it declares no plugins list")
@@ -141,21 +187,30 @@ def newest_publication(records):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--local-catalogs", metavar="BASE_URL", help="Read generated catalogs from EVILO_BUILD_DIR; no HTTP calls")
+    parser.add_argument("--key-directory", type=pathlib.Path, default=os.environ.get("EVILO_SUBSCRIBE_KEY_DIRECTORY"))
+    args = parser.parse_args()
     key_hex = os.environ.get("EVILO_SUBSCRIBE_KEY_HEX", "").strip()
     if key_hex and not (len(key_hex) == 64 and all(character in "0123456789abcdef" for character in key_hex.lower())):
         fail("EVILO_SUBSCRIBE_KEY_HEX must be 64 hexadecimal characters")
+    seed = read_authority(args.key_directory) if args.key_directory else (bytes.fromhex(key_hex) if key_hex else None)
 
     sources = read_sources()
-    index = build_index(sources)
+    index = build_index(sources, args.local_catalogs)
     body = (json.dumps(index, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    if len(body) > MAX_BYTES:
+        fail(f"index exceeds {MAX_BYTES} bytes")
     INDEX.write_bytes(body)
 
-    if not key_hex:
+    if seed is None:
+        for stale in (SIGNATURE, PUBLIC, POINTER):
+            stale.unlink(missing_ok=True)
         print("build_index: no signing key supplied; wrote index.json without a signature")
         return 0
 
-    signature = sign(body, bytes.fromhex(key_hex))
-    public_key = public_from_seed(bytes.fromhex(key_hex))
+    signature = sign(body, seed)
+    public_key = public_from_seed(seed)
     SIGNATURE.write_text(signature.hex() + "\n", encoding="ascii")
     PUBLIC.write_text(public_key.hex() + "\n", encoding="ascii")
 
