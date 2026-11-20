@@ -38,22 +38,22 @@ build/
 ## 快速开始
 
 ```sh
-bash gen.sh --COUNT 600 --ip 10.42.0.1 --port 8080
+bash gen.sh --ip x.x.x.x --port 8080 --count 10
 ```
 
-| 参数 | 默认值 | 说明 |
-| --- | --- | --- |
-| `--COUNT` | `100` | 插件数量 |
-| `--ip` | `10.42.0.1` | 写进 catalog 与索引的地址 |
-| `--port` | `8080` | HTTP 端口 |
+| 参数      | 默认值    | 说明                      |
+| --------- | --------- | ------------------------- |
+| `--count` | `10`      | 插件数量                  |
+| `--ip`    | `x.x.x.x` | 写进 catalog 与索引的地址 |
+| `--port`  | `8080`    | HTTP 端口                 |
 
 等价于直接运行：
 
 ```sh
-python3 generate.py 600 http://10.42.0.1:8080
+python3 generate.py 600 http://x.x.x.x:8080
 ```
 
-在 evilo 里添加订阅源 `http://10.42.0.1:8080/repo.json`，勾选明文 HTTP。
+在 evilo 里添加订阅源 `http://x.x.x.x:18080/repo.json`，勾选明文 HTTP。
 
 ## generate.py 做了什么
 
@@ -91,16 +91,16 @@ EVILO_SUBSCRIBE_KEY_HEX=9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac03
 
 - 服务监听 `0.0.0.0:<port>`；本机地址用 `ip -4 addr` 查看。
 - ufw 启用时放行：`sudo ufw allow 8080/tcp`，测完用 `sudo ufw delete allow 8080/tcp` 删除。
-- Android 模拟器访问宿主机用 `10.0.2.2`；真机用电脑的局域网地址。
+- Android 模拟器访问宿主机用 `x.x.x.x`；真机用电脑的局域网地址。
 - 地址写进 catalog 和索引，换 IP 后必须重新生成并重建索引。
 
 ## 能验证与不能验证
 
-| 能验证 | 不能验证 |
-| --- | --- |
-| 索引解析、Ed25519 验签、指纹匹配、篡改拒绝 | 实际安装（需要真实签名的 manifest） |
-| 列表数量与插件元数据 | 插件运行时行为 |
-| 订阅只读取 `repo.json`、`index.json`、`index.json.sig`、`index.json.pub` | 下载与 Wasmline 加载 |
+| 能验证                                                                   | 不能验证                            |
+| ------------------------------------------------------------------------ | ----------------------------------- |
+| 索引解析、Ed25519 验签、指纹匹配、篡改拒绝                               | 实际安装（需要真实签名的 manifest） |
+| 列表数量与插件元数据                                                     | 插件运行时行为                      |
+| 订阅只读取 `repo.json`、`index.json`、`index.json.sig`、`index.json.pub` | 下载与 Wasmline 加载                |
 
 `manifestUrl` 与 `sourceArchiveUrl` 指向不存在的路径，所以能列出插件、能选版本，点安装会失败。
 
