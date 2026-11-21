@@ -42,6 +42,19 @@ def port_in_use(port):
         return probe.connect_ex(("127.0.0.1", port)) == 0
 
 
+class FixtureHandler(http.server.SimpleHTTPRequestHandler):
+    # Fixture packages are public, credential-free files. Browser hosts need to
+    # read signed bytes and PNGs from this separately started local server.
+    def end_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+        super().end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.end_headers()
+
+
 def main():
     if fixture_answers(PORT):
         print(f"server already serving on port {PORT}; nothing to do")
@@ -49,7 +62,7 @@ def main():
     if port_in_use(PORT):
         print(f"port {PORT} is held by another process; stop it or pass a different port", file=sys.stderr)
         return 1
-    handler = lambda *args, **kwargs: http.server.SimpleHTTPRequestHandler(
+    handler = lambda *args, **kwargs: FixtureHandler(
         *args, directory=str(DIRECTORY), **kwargs
     )
     try:
