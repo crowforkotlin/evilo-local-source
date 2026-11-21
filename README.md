@@ -90,7 +90,10 @@ choose a chapter, and open its PNG pages.
 `serve.py` listens on all IPv4 interfaces. Its loopback request is only an internal
 port probe, never a published URL. It reuses an existing listener only when the
 served run marker matches this output directory; it never kills a process.
-Its optional second positional argument selects another directory.
+Its optional second positional argument selects another directory. Public fixture
+files include `Access-Control-Allow-Origin: *` without credential support, and
+`OPTIONS` returns HTTP 204, so a browser host can fetch signed bytes and PNGs from
+this separately started server. Do not serve private authority directories.
 
 For a computer-only session, explicitly choose `http://localhost:8080` as the base
 URL (`--base-url` in `gen.sh`). That address points to the phone itself on a phone;
@@ -187,6 +190,8 @@ manifest metadata: `evilo.descriptor` contains only each plugin's small identity
 object and the manifest carries the archive's SHA-256, not the archive or comic
 JSON. Generated comic JSON constants are split into 8,000-character chunks and
 joined at runtime to avoid the JVM constant-size limit on the retained JVM target.
+Each plugin gets a dedicated 256×256 PNG icon, separate from the 480×680 comic
+covers, to stay within evilo's 512-pixel-per-side / 262,144-total-pixel icon limits.
 Only byte-identical content-addressed artifacts are deduplicated. Hard links fall back to copies on
 filesystems that do not support them. Source archiving uses one reproducible ZIP
 for the entire generated source commit, not 600 different source trees.
@@ -221,9 +226,51 @@ The index keeps each plugin's newest release and preserves its exported metadata
 
 ## Verification status
 
-Builds, generation, tests, formatters, servers, device commands, installation,
-Wasmline loading, and PNG decoding were not run during this implementation.
-The commands above are operator instructions, not observed successes. A later
-explicit generation must first establish whether the pinned dependency/toolchain
-versions export successfully; then installation, publisher approval, opening,
-search pagination, chapters, and actual reader images must be exercised in evilo.
+On 2026-11-21, an explicitly authorized validation used a fresh external test
+authority and `--use-local-sdk`, without SDK publishing, dependency composites,
+or tooling downloads. Zero-plugin generation and two distinct guest exports with
+`--works 100 --batch-size 2` succeeded. The first multi-guest build revealed that
+the copied root must retain the template's `apply false` plugin declarations;
+the generator now retains those declarations. A subsequent desktop check rejected
+the original 480×680 plugin icon under the host's icon-size limits; the generator
+now creates a dedicated 256×256 icon without reducing comic covers or host limits.
+A fresh two-plugin signed export with the corrected icons succeeded in 24 seconds;
+the prior signed run remained unchanged.
+
+Independent Ed25519 checks verified the exact subscription bytes and both signed
+manifest payloads, all six artifact hashes/sizes, the source ZIP hash, and ZIP file
+contents against the published Git bundle revision. The resolved Wasmline beta1
+tooling emits manifest envelope version 1; the resolved beta1 host loader accepted
+those packages. The online latest AOT catalog check reported `WLAOT002` unavailable;
+the local compatibility profiles were validated.
+
+An external JVM harness used evilo's actual `WasmlinePluginLoader` and native
+Pulley runtime to load both signed guests. Each returned 100 unique works across
+nine search pages and title/author/tag search results. All 200 detail results,
+612 chapters in the corrected-icon run, and each chapter's four image references
+were exercised. Sample
+cover/reader PNGs decoded through ImageIO; reopening preserved the results.
+Wrong signing keys, plugin IDs, source revisions, and manifest digests were rejected.
+A separate JVM compile exercised the 100-work chunked constants and all chapters
+for one guest. Local HTTP checks
+verified all 812 generated work/chapter destinations and all 30 PNGs, as well as
+CORS, signed local/fetched index rebuilds, unsigned cleanup, and listener reuse.
+
+Run the permanent regression checks without Gradle or authority files:
+
+```sh
+python3 -I scripts/test_fixtures.py
+```
+
+They cover the RFC 8032 signing vector, the 100-work boundary, copied root plugin
+declarations, bounded 256×256 icons with unchanged comic covers, different generated
+data across runs, and GET/HEAD/OPTIONS CORS.
+Template-copy coverage skips when the sibling template is absent. All four tests
+passed during validation.
+
+The 600-plugin full export was not run: the measured two-plugin workspace and
+output occupied approximately 179 MB and exported in 29 seconds. Linear scaling
+would require roughly 53 GB and 2.4 hours before additional batch/configuration
+costs; these are estimates, not measured 600-plugin results. Desktop/browser UI,
+Android installation, and publisher-approval interaction are separate app checks,
+not established by the headless signed-host harness.
