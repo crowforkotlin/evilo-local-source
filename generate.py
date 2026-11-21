@@ -117,7 +117,13 @@ def copy_template(args, workspace):
         raise RuntimeError("Template URL policy changed; update the fixture copy adapter before exporting")
     exporter.write_text(text.replace(old, replacement), encoding="utf-8")
 
-    (workspace / "build.gradle.kts").write_text('''tasks.register<Zip>("fixtureSourceArchive") {
+    (workspace / "build.gradle.kts").write_text('''plugins {
+    alias(libs.plugins.kotlinMultiplatform) apply false
+    alias(libs.plugins.kotlinSerialization) apply false
+    alias(libs.plugins.wasmline) apply false
+}
+
+tasks.register<Zip>("fixtureSourceArchive") {
     archiveFileName.set("fixture-sources.zip")
     destinationDirectory.set(layout.buildDirectory.dir("source-release"))
     isPreserveFileTimestamps = false
@@ -200,7 +206,7 @@ def make_plugins(args, workspace, run_url, version_code, rng):
                              'val fixtureData: FixtureData = PluginJson.decodeFromString(\n' +
                              '    listOf(\n        ' + ',\n        '.join(chunks) +
                              '\n    ).joinToString("")\n)\n', encoding="utf-8")
-        shutil.copy2(data_root / "pages/cover-0.png", directory / "icon.png")
+        media.write_icon(data_root / "pages/cover-0.png", directory / "icon.png")
         (directory / "icon.svg").unlink(missing_ok=True)
     shutil.rmtree(skeleton)
     (workspace / "settings.gradle.kts").write_text('''pluginManagement {

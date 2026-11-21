@@ -38,6 +38,18 @@ def works(rng, count):
     return result
 
 
+def write_icon(cover, destination):
+    # Plugin icons have a separate host limit from comic covers: <=512 pixels
+    # per side and <=262144 total pixels. Keep the original reader cover intact.
+    from PIL import Image
+
+    with Image.open(cover) as image:
+        icon = Image.new("RGB", (256, 256), (246, 242, 232))
+        image.thumbnail((256, 256), Image.Resampling.LANCZOS)
+        icon.paste(image, ((256 - image.width) // 2, (256 - image.height) // 2))
+        icon.save(destination, format="PNG")
+
+
 def write_pages(directory, rng):
     # Pillow is used only by explicitly invoked generation, never by serve/index.
     from PIL import Image, ImageDraw, ImageFont
