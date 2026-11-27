@@ -36,6 +36,20 @@ with patch.object(sys, "argv", [str(ROOT / "serve.py")]):
 
 
 class FixtureRegressionTest(unittest.TestCase):
+    def test_configuration_variants_are_deterministic_and_separate_access(self):
+        variants = [generator.configuration_fixture(index) for index in range(6)]
+        self.assertEqual(variants, [generator.configuration_fixture(index + 6) for index in range(6)])
+        self.assertEqual(variants[0], ({}, {}))
+        self.assertEqual(variants[1][1]["minimumHostVersionCode"], 2)
+        self.assertIn("configuration.filters.v1", variants[1][0]["protocol"]["requiredCapabilities"])
+        self.assertEqual(variants[2][0]["configuration"]["groups"][0]["fields"][0]["options"], [])
+        self.assertEqual(variants[3][0]["configuration"]["groups"][0]["fields"][0]["defaultValue"],
+                         {"choiceIds": ["not-declared"]})
+        self.assertIn("fixture.unsupported.v1", variants[4][0]["protocol"]["requiredCapabilities"])
+        self.assertEqual(variants[4][1]["minimumHostVersionCode"], 2)
+        self.assertEqual(variants[5][0]["configuration"]["actions"][0]["kind"], "UNSUPPORTED")
+        self.assertNotIn("grants", variants[5][0]["configuration"]["actions"][0])
+
     def test_rfc8032_signing_vector(self):
         # RFC 8032 test vector only; never written to an authority directory.
         seed = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")

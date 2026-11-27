@@ -39,20 +39,31 @@ class TemplateContent(private val descriptor: PluginDescriptor, private val data
         description = work.description,
         authors = listOf(work.author),
         tags = work.tags,
+        extensions = if (descriptor.configuration.groups.flatMap { it.fields }.any { it.localMetadataKey == "fixture.parity" })
+            mapOf("fixture.parity" to if (data.works.indexOf(work) % 2 == 0) "even" else "odd") else emptyMap(),
     )
 
     fun execute(operation: PluginOperation): PluginResult {
         require(operation.kind == MediaKind.MANGA && operation.page > 0)
         operation.item?.let { require(it.id.pluginId == descriptor.id && it.id.kind == MediaKind.MANGA) }
         operation.chapter?.let { require(it.itemId.pluginId == descriptor.id && it.itemId.kind == MediaKind.MANGA) }
-        return when (operation.operation) {
+        val filters = crow.evilo.plugin.api.resolvePluginFilters(descriptor.configuration, operation.filters,
+            crow.evilo.plugin.api.PluginFilterScope.PROVIDER)
+        val access = descriptor.configuration.access.map { requirement ->
+            crow.evilo.plugin.api.PluginAccessState(requirement.id, crow.evilo.plugin.api.PluginAccessStatus.UNSUPPORTED,
+                actionId = requirement.actionId)
+        }
+        val result = when (operation.operation) {
             PluginOperationKind.SEARCH -> {
                 val query = operation.query.trim()
-                val matching = data.works.filter { work ->
-                    query.isEmpty() || work.title.contains(query, true) || work.author.contains(query, true) ||
-                        work.tags.any { it.contains(query, true) }
+                val matching = data.works.filterIndexed { index, work ->
+                    val tags = filters["tags"]?.choiceIds.orEmpty()
+                    filters["include-works"]?.toggle != false && work.title.contains(filters["title"]?.text.orEmpty(), true) &&
+                        (tags.isEmpty() || (if (index % 2 == 0) "even" else "odd") in tags) &&
+                        (query.isEmpty() || work.title.contains(query, true) || work.author.contains(query, true) ||
+                            work.tags.any { it.contains(query, true) })
                 }
-                val limit = (operation.extensions["limit"]?.toIntOrNull() ?: 12).coerceIn(1, 100)
+                val limit = (filters["limit"]?.number?.toInt() ?: operation.extensions["limit"]?.toIntOrNull() ?: 12).coerceIn(1, 100)
                 val offset = (operation.page.toLong() - 1) * limit
                 val selected = if (offset >= matching.size) emptyList() else
                     matching.drop(offset.toInt()).take(limit).map(::item)
@@ -86,5 +97,6 @@ class TemplateContent(private val descriptor: PluginDescriptor, private val data
                 }))
             }
         }
+        return result.copy(access = access)
     }
 }

@@ -55,6 +55,8 @@ def arguments():
     parser.add_argument("--use-local-sdk", action="store_true", help="Resolve the SDK from Maven Local")
     parser.add_argument("--wasmline-path", type=pathlib.Path, help="Opt-in Wasmline composite build")
     parser.add_argument("--auto-download", action="store_true", help="Allow Wasmline tooling downloads")
+    parser.add_argument("--configuration-fixtures", action="store_true",
+                        help="Cycle legacy, typed, empty, invalid, required-unsupported, and mock-access schemas")
     parser.add_argument("--works", type=int, default=24, help="Comics per plugin (1..100)")
     parser.add_argument("--batch-size", type=int, default=8, help="Guest exports per Gradle invocation (1..32)")
     args = parser.parse_args()
@@ -169,6 +171,48 @@ fun main() {
 ''', encoding="utf-8")
 
 
+def configuration_fixture(index):
+    """Deterministic source schemas only; no login, dynamic service, or real account."""
+    variant = index % 6
+    if variant == 0:
+        return {}, {}
+    fields = [
+        {"id": "tags", "label": {"fallback": "Tags"}, "control": "CHOICE", "multiple": True,
+         "options": [{"id": "even", "label": {"fallback": "Even works"}},
+                     {"id": "odd", "label": {"fallback": "Odd works"}}]},
+        {"id": "include-works", "label": {"fallback": "Include works"}, "control": "TOGGLE",
+         "defaultValue": {"toggle": True}},
+        {"id": "title", "label": {"fallback": "Title contains"}, "control": "TEXT", "maxLength": 80,
+         "defaultValue": {"text": ""}, "dependencies": [{"fieldId": "include-works", "value": {"toggle": True}}]},
+        {"id": "limit", "label": {"fallback": "Page size"}, "control": "RANGE", "min": 1, "max": 20,
+         "defaultValue": {"number": 12}},
+        {"id": "local-parity", "label": {"fallback": "Loaded work parity"}, "scope": "LOCAL", "control": "CHOICE",
+         "localMetadataKey": "fixture.parity", "options": [{"id": "even", "label": {"fallback": "Even"}},
+                                                           {"id": "odd", "label": {"fallback": "Odd"}}]},
+    ]
+    configuration = {"groups": [{"id": "fixture", "label": {"fallback": "Fixture filters"}, "fields": fields}]}
+    protocol = {"optionalCapabilities": ["configuration.filters.v1"]}
+    release = {}
+    if variant == 1:
+        fields[1]["required"] = True
+        protocol = {"requiredCapabilities": ["media.catalog.v1", "configuration.filters.v1"]}
+        release["minimumHostVersionCode"] = 2
+    elif variant == 2:
+        fields[0]["options"] = []  # Optional empty choices remain usable; not a dynamic API.
+    elif variant == 3:
+        fields[0]["defaultValue"] = {"choiceIds": ["not-declared"]}
+    elif variant == 4:
+        protocol = {"requiredCapabilities": ["media.catalog.v1", "fixture.unsupported.v1"],
+                    "optionalCapabilities": ["configuration.filters.v1"]}
+        release["minimumHostVersionCode"] = 2
+    elif variant == 5:
+        configuration["access"] = [{"id": "fixture-account", "label": {"fallback": "Fictional account"},
+                                    "kind": "LOGIN", "actionId": "unsupported-login"}]
+        configuration["actions"] = [{"id": "unsupported-login", "requirementId": "fixture-account",
+                                      "label": {"fallback": "No provider login implemented"}, "kind": "UNSUPPORTED"}]
+    return {"configuration": configuration, "protocol": protocol}, release
+
+
 def make_plugins(args, workspace, run_url, version_code, rng):
     media = load_script("fixture_media")
     data_root = workspace / "evilo-plugin-core/src/commonMain/resources/fixture"
@@ -188,6 +232,11 @@ def make_plugins(args, workspace, run_url, version_code, rng):
             "catalog": {"authors": [media.author_name(rng)],
                         "description": "Synthetic comic fixture. Invented titles, authors, and raster artwork; not a real provider."},
         }
+        if getattr(args, "configuration_fixtures", False):
+            descriptor_fields, release_fields = configuration_fixture(index)
+            spec["descriptor"].update(descriptor_fields)
+            if release_fields:
+                spec["release"] = release_fields
         write_json(directory / "plugin-spec.json", spec)
         data = {"baseUrl": run_url, "works": media.works(rng, args.works)}
         for work in data["works"]:
